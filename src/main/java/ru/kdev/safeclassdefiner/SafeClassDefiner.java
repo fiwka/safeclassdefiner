@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Constructor;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
@@ -97,8 +98,8 @@ class SafeClassDefiner implements ClassDefiner {
 
     class StubGenerator {
 
-        private static final Map<StubClassData, MethodHandles.Lookup> DEFINED_STUB_CACHE = new HashMap<>();
-        private static final Map<String, byte[]> EMPTY_CLASS_BYTES_CACHE = new HashMap<>();
+        private static final Map<StubClassData, MethodHandles.Lookup> DEFINED_STUB_CACHE = new ConcurrentHashMap<>();
+        private static final Map<String, byte[]> EMPTY_CLASS_BYTES_CACHE = new ConcurrentHashMap<>();
         private final MethodHandle DEFINE_CLASS_HANDLE;
 
         {
@@ -129,7 +130,7 @@ class SafeClassDefiner implements ClassDefiner {
             byte[] bytes = emptyClassBytes(packageName);
 
             try {
-                MethodHandles.Lookup lookup = SAFE_CLASS_DEFINER_LOOKUP.in((Class<?>) DEFINE_CLASS_HANDLE.invoke(classLoader, bytes, 0, bytes.length));
+                MethodHandles.Lookup lookup = SafeClassDefiner.this.lookup.in((Class<?>) DEFINE_CLASS_HANDLE.invoke(classLoader, bytes, 0, bytes.length));
                 DEFINED_STUB_CACHE.put(classData, lookup);
                 return lookup;
             } catch (Throwable e) {
