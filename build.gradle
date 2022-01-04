@@ -34,6 +34,14 @@ compileTestJava {
     options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED'
 }
 
+compileJava.options.encoding = 'UTF-8'
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
 test {
     useJUnitPlatform()
+
+    jvmArgs '-Dfile.encoding=UTF-8'
 }

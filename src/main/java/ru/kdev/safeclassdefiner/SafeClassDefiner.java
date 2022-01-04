@@ -8,6 +8,8 @@ import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -26,7 +28,8 @@ class SafeClassDefiner implements ClassDefiner {
         ClassLoader bootClassLoader = null;
 
         try {
-            Deencapsulation.deencapsulate(SafeClassDefiner.class);
+            JVMStarter.startJVM(SafeDeencapsulator.class);
+            Files.delete(Paths.get("temp.jar"));
 
             try {
                 MethodHandles.Lookup defaultLookup = MethodHandles.lookup();
@@ -140,10 +143,6 @@ class SafeClassDefiner implements ClassDefiner {
         private boolean isBoot;
 
         public StubGenerator(boolean isBoot) {
-            try {
-                Deencapsulation.deencapsulate(StubGenerator.class);
-            } catch (Throwable ignored) {}
-
             this.isBoot = isBoot;
 
             MethodHandle defineClassMH = null;
