@@ -1,6 +1,7 @@
 package ru.kdev.safeclassdefiner;
 
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 
 /**
  * Provides methods for define new classes.

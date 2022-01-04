@@ -24,6 +24,16 @@ compileJmhJava {
     options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED'
 }
 
+compileJava {
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=ALL-UNNAMED'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED'
+}
+
+compileTestJava {
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=ALL-UNNAMED'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED'
+}
+
 test {
     useJUnitPlatform()
 }
