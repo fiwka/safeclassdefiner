@@ -35,7 +35,8 @@ class SafeDeencapsulator {
                 Map.of(
                         "jdk.internal.misc", singletonSet,
                         "jdk.internal.loader", singletonSet,
-                        "java.lang.invoke", singletonSet
+                        "java.lang.invoke", singletonSet,
+                        "java.lang", singletonSet
                 ),
                 Collections.emptySet(),
                 Collections.emptyMap()
