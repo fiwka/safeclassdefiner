@@ -15,7 +15,7 @@ import java.util.jar.Manifest;
 
 import static java.util.jar.Attributes.Name.MANIFEST_VERSION;
 
-public final class JVMStarter {
+final class JVMStarter {
 
     public static void startJVM(Class<?> mainClass) {
         try {

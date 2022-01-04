@@ -25,13 +25,13 @@ compileJmhJava {
 }
 
 compileJava {
-    options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=ALL-UNNAMED'
-    options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=safeclassdefiner.main'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=safeclassdefiner.main'
 }
 
 compileTestJava {
-    options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=ALL-UNNAMED'
-    options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=safeclassdefiner.main'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=safeclassdefiner.main'
 }
 
 compileJava.options.encoding = 'UTF-8'

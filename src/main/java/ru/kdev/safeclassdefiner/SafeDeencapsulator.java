@@ -12,7 +12,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
-public class SafeDeencapsulator {
+class SafeDeencapsulator {
 
     public static void main(String[] args) throws IOException, AttachNotSupportedException, AgentLoadException, AgentInitializationException {
         VirtualMachine virtualMachine = VirtualMachine.attach(args[0]);
