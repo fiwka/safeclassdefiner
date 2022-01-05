@@ -13,14 +13,14 @@ import java.util.concurrent.TimeUnit;
 
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
-@Warmup(iterations = 3)
-@Fork(value = 1, warmups = 1)
-@Measurement(iterations = 100, time = 10, timeUnit = TimeUnit.MILLISECONDS)
+@Warmup(iterations = 5, time = 1)
+@Fork(value = 2, warmups = 2)
+@Measurement(iterations = 100, time = 1)
 public class SafeClassDefinerDefineClass {
 
     private static final ClassDefiner SAFE_CLASS_DEFINER = ClassDefiner.createSafeClassDefiner();
 
-    {
+    static {
         try {
             final sun.misc.Unsafe UNSAFE;
             {

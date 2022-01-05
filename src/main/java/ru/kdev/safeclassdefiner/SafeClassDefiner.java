@@ -58,12 +58,12 @@ class SafeClassDefiner implements ClassDefiner {
 
     SafeClassDefiner() {
         this.lookup = SAFE_CLASS_DEFINER_LOOKUP;
-        this.stubGenerator = new StubGenerator(false);
+        this.stubGenerator = new StubGenerator();
     }
 
     SafeClassDefiner(MethodHandles.Lookup lookup) {
         this.lookup = lookup;
-        this.stubGenerator = new StubGenerator(false);
+        this.stubGenerator = new StubGenerator();
     }
 
     @Override
@@ -75,10 +75,7 @@ class SafeClassDefiner implements ClassDefiner {
     public Class<?> defineClass(byte[] bytes, ClassLoader classLoader, String packageName) {
         try {
             if (classLoader == null) {
-                setBoot(true);
-                Class<?> klass = Objects.requireNonNull(stubGenerator.generateStub(BOOT_CLASS_LOADER, packageName)).defineClass(bytes);
-                setBoot(false);
-                return klass;
+                return Objects.requireNonNull(stubGenerator.generateStub(BOOT_CLASS_LOADER, packageName)).defineClass(bytes);
             }
 
             return Objects.requireNonNull(stubGenerator.generateStub(classLoader, packageName)).defineClass(bytes);
@@ -97,10 +94,7 @@ class SafeClassDefiner implements ClassDefiner {
     public MethodHandles.Lookup defineHiddenClass(byte[] bytes, boolean initialize, ClassLoader classLoader, String packageName, MethodHandles.Lookup.ClassOption... options) {
         try {
             if (classLoader == null) {
-                setBoot(true);
-                MethodHandles.Lookup lookup = Objects.requireNonNull(stubGenerator.generateStub(BOOT_CLASS_LOADER, packageName)).defineHiddenClass(bytes, initialize, options);
-                setBoot(false);
-                return lookup;
+                return Objects.requireNonNull(stubGenerator.generateStub(BOOT_CLASS_LOADER, packageName)).defineHiddenClass(bytes, initialize, options);
             }
 
             return Objects.requireNonNull(stubGenerator.generateStub(classLoader, packageName)).defineHiddenClass(bytes, initialize, options);
@@ -108,10 +102,6 @@ class SafeClassDefiner implements ClassDefiner {
             e.printStackTrace();
             return null;
         }
-    }
-
-    private void setBoot(boolean isBoot) {
-        stubGenerator.isBoot = isBoot;
     }
 
     private static String readClassName(byte[] bytes) {
@@ -139,31 +129,20 @@ class SafeClassDefiner implements ClassDefiner {
         private static final Map<StubClassData, MethodHandles.Lookup> DEFINED_STUB_CACHE = new ConcurrentHashMap<>();
         private static final Map<String, Map.Entry<String, byte[]>> EMPTY_CLASS_BYTES_CACHE = new ConcurrentHashMap<>();
         private final MethodHandle DEFINE_CLASS_HANDLE;
-        private final MethodHandle DEFINE_CLASS_BOOT_HANDLE;
-        private boolean isBoot;
 
-        public StubGenerator(boolean isBoot) {
-            this.isBoot = isBoot;
-
+        public StubGenerator() {
             MethodHandle defineClassMH = null;
-            MethodHandle defineClassBootMH = null;
 
             try {
-                Method method = ClassLoader.class.getDeclaredMethod("defineClass", byte[].class, int.class, int.class);
+                Method method = ClassLoader.class.getDeclaredMethod("defineClass", String.class, byte[].class, int.class, int.class);
                 method.setAccessible(true);
 
                 defineClassMH = SafeClassDefiner.this.lookup.unreflect(method);
-
-                method = ClassLoader.class.getDeclaredMethod("defineClass", String.class, byte[].class, int.class, int.class);
-                method.setAccessible(true);
-
-                defineClassBootMH = SafeClassDefiner.this.lookup.unreflect(method);
             } catch (Throwable t) {
                 t.printStackTrace();
             }
 
             DEFINE_CLASS_HANDLE = defineClassMH;
-            DEFINE_CLASS_BOOT_HANDLE = defineClassBootMH;
         }
 
         public MethodHandles.Lookup generateStub(ClassLoader classLoader, String packageName) {
@@ -173,19 +152,13 @@ class SafeClassDefiner implements ClassDefiner {
             if (cachedLookup != null)
                 return cachedLookup;
 
-            Map.Entry<String, byte[]> entry = emptyClassBytes(packageName, isBoot);
+            Map.Entry<String, byte[]> entry = emptyClassBytes(packageName, true);
             byte[] bytes = entry.getValue();
 
             try {
-                if (isBoot) {
-                    MethodHandles.Lookup lookup = SafeClassDefiner.this.lookup.in((Class<?>) DEFINE_CLASS_BOOT_HANDLE.invoke(classLoader, entry.getKey(), bytes, 0, bytes.length));
-                    DEFINED_STUB_CACHE.put(classData, lookup);
-                    return lookup;
-                } else {
-                    MethodHandles.Lookup lookup = SafeClassDefiner.this.lookup.in((Class<?>) DEFINE_CLASS_HANDLE.invoke(classLoader, bytes, 0, bytes.length));
-                    DEFINED_STUB_CACHE.put(classData, lookup);
-                    return lookup;
-                }
+                MethodHandles.Lookup lookup = SafeClassDefiner.this.lookup.in((Class<?>) DEFINE_CLASS_HANDLE.invoke(classLoader, entry.getKey(), bytes, 0, bytes.length));
+                DEFINED_STUB_CACHE.put(classData, lookup);
+                return lookup;
             } catch (Throwable e) {
                 e.printStackTrace();
                 return null;
