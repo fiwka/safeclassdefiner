@@ -10,7 +10,7 @@ The SafeClassDefiner backend uses a MethodHandles.Lookup, but it can define clas
 ```java
 ClassDefiner classDefiner = ClassDefiner.createSafeClassDefiner();
 classDefiner.defineClass(myBytes, classLoader);
-classDefiner.defineHiddenClass(myBytes, classLoader);
+classDefiner.defineHiddenClass(myBytes, true, classLoader);
 ```
 ## Dependencies
 ASM (9.2) for generating empty classes.
