@@ -111,7 +111,7 @@ public class SafeClassDefinerTest {
     public void safeClassDefinerDefineClassTestBootClassLoaderAutoPackageReading() {
         ClassDefiner safeClassDefiner = ClassDefiner.createSafeClassDefiner();
         Class<?> test = safeClassDefiner.defineClass(
-                ClassDefiner.makeEmptyClassBytes("test.package", "Test8"),
+                ClassDefiner.makeEmptyClassBytes("test.package", "Test9"),
                 null
         );
         assertEquals("test.package", test.getPackageName());
