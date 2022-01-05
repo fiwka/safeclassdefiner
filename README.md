@@ -6,6 +6,12 @@ Unsafe is slightly faster, but from the name we can understand that it is insecu
 The SafeClassDefiner backend uses a MethodHandles.Lookup, but it can define classes in any package available to its lookup and any ClassLoader.
 ## Benchmark results on my computer
 ![JMH Benchmark](benchmark.jpg "JMH Benchmark")
+## Example usage
+```java
+ClassDefiner classDefiner = ClassDefiner.createSafeClassDefiner();
+classDefiner.defineClass(myBytes, classLoader);
+classDefiner.defineHiddenClass(myBytes, classLoader);
+```
 ## Dependencies
 ASM (9.2) for generating empty classes.
 ## Test dependencies
