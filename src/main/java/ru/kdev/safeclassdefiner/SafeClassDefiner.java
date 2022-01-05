@@ -104,10 +104,6 @@ class SafeClassDefiner implements ClassDefiner {
         }
     }
 
-    private static String readClassName(byte[] bytes) {
-        return new ClassReader(bytes).getClassName().replace("/", ".");
-    }
-
     private String readPackageName(byte[] bytes) {
         ClassReader reader = new ClassReader(bytes);
         String[] mass = reader.getClassName().split("/");
