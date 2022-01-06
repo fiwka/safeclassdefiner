@@ -115,8 +115,7 @@ public class SafeClassDefinerTest {
                 null
         );
         assertEquals("test.package", test.getPackageName());
-        String classLoaderName = test.getClassLoader().toString().split("@")[0];
-        assertEquals("jdk.internal.loader.ClassLoaders$BootClassLoader", classLoaderName);
+        assertNull(test.getClassLoader());
     }
 
     private static class MySuperMegaPrivateClassLoader extends ClassLoader {}

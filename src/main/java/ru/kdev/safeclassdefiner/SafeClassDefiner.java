@@ -1,15 +1,14 @@
 package ru.kdev.safeclassdefiner;
 
-import jdk.internal.loader.ClassLoaders;
 import org.objectweb.asm.*;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.ProtectionDomain;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -18,14 +17,13 @@ import java.util.stream.Collectors;
 class SafeClassDefiner implements ClassDefiner {
 
     private static final MethodHandles.Lookup SAFE_CLASS_DEFINER_LOOKUP;
-    private static final ClassLoader BOOT_CLASS_LOADER;
+    private static final ClassLoaderAccess CLASS_LOADER_ACCESS;
 
     private final MethodHandles.Lookup lookup;
     private final StubGenerator stubGenerator;
 
     static {
         MethodHandles.Lookup lookup = null;
-        ClassLoader bootClassLoader = null;
 
         try {
             JVMStarter.startJVM(SafeDeencapsulator.class);
@@ -44,16 +42,8 @@ class SafeClassDefiner implements ClassDefiner {
             System.out.println("Trusted lookup unsupported in this enviroment.");
         }
 
-        try {
-            MethodHandles.Lookup privateLookupInClassLoaders = MethodHandles.privateLookupIn(ClassLoaders.class, MethodHandles.lookup());
-            Field field = privateLookupInClassLoaders.lookupClass().getDeclaredField("BOOT_LOADER");
-            bootClassLoader = (ClassLoader) privateLookupInClassLoaders.unreflectVarHandle(field).get();
-        } catch (Throwable t) {
-            t.printStackTrace();
-        }
-
         SAFE_CLASS_DEFINER_LOOKUP = lookup;
-        BOOT_CLASS_LOADER = bootClassLoader;
+        CLASS_LOADER_ACCESS = StubGenerator.getClassLoaderAccess();
     }
 
     SafeClassDefiner() {
@@ -68,21 +58,15 @@ class SafeClassDefiner implements ClassDefiner {
 
     @Override
     public Class<?> defineClass(byte[] bytes, ClassLoader classLoader) {
-        return defineClass(bytes, classLoader, readPackageName(bytes));
+        return defineClass(bytes, classLoader, null);
     }
 
     @Override
-    public Class<?> defineClass(byte[] bytes, ClassLoader classLoader, String packageName) {
-        try {
-            if (classLoader == null) {
-                return Objects.requireNonNull(stubGenerator.generateStub(BOOT_CLASS_LOADER, packageName)).defineClass(bytes);
-            }
+    public Class<?> defineClass(byte[] bytes, ClassLoader classLoader, String unused) {
+        Class<?> caller = getCallerClass(2);
 
-            return Objects.requireNonNull(stubGenerator.generateStub(classLoader, packageName)).defineClass(bytes);
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-            return null;
-        }
+        return CLASS_LOADER_ACCESS
+                .defineClass1(classLoader, readClassName(bytes), bytes, 0, bytes.length, Objects.requireNonNull(caller == SafeClassDefiner.class ? getCallerClass() : caller).getProtectionDomain(), "__SafeClassDefiner__");
     }
 
     @Override
@@ -92,14 +76,48 @@ class SafeClassDefiner implements ClassDefiner {
 
     @Override
     public MethodHandles.Lookup defineHiddenClass(byte[] bytes, boolean initialize, ClassLoader classLoader, String packageName, MethodHandles.Lookup.ClassOption... options) {
-        try {
-            if (classLoader == null) {
-                return Objects.requireNonNull(stubGenerator.generateStub(BOOT_CLASS_LOADER, packageName)).defineHiddenClass(bytes, initialize, options);
-            }
+        Class<?> caller = getCallerClass(2);
 
-            return Objects.requireNonNull(stubGenerator.generateStub(classLoader, packageName)).defineHiddenClass(bytes, initialize, options);
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
+        return lookup.in(CLASS_LOADER_ACCESS
+                .defineClass0(
+                        classLoader,
+                        stubGenerator.generateStub(classLoader, packageName),
+                        readClassName(bytes),
+                        bytes,
+                        0,
+                        bytes.length,
+                        Objects.requireNonNull(caller == SafeClassDefiner.class ? getCallerClass() : caller).getProtectionDomain(),
+                        initialize,
+                        (2 | optionsToFlag(options)),
+                        null
+                ));
+    }
+
+    private int optionsToFlag(MethodHandles.Lookup.ClassOption[] options) {
+        int flags = 0;
+
+        for (MethodHandles.Lookup.ClassOption option : options) {
+            if (option == MethodHandles.Lookup.ClassOption.NESTMATE)
+                flags |= 1;
+            else
+                flags |= 4;
+        }
+
+        return flags;
+    }
+
+    private static String readClassName(byte[] bytes) {
+        return new ClassReader(bytes).getClassName();
+    }
+
+    private static Class<?> getCallerClass() {
+        return getCallerClass(3);
+    }
+
+    private static Class<?> getCallerClass(int depth) {
+        try {
+            return Class.forName(Thread.currentThread().getStackTrace()[depth].getClassName());
+        } catch (ClassNotFoundException e) {
             return null;
         }
     }
@@ -122,28 +140,12 @@ class SafeClassDefiner implements ClassDefiner {
 
     class StubGenerator {
 
-        private static final Map<StubClassData, MethodHandles.Lookup> DEFINED_STUB_CACHE = new ConcurrentHashMap<>();
+        private static final Map<StubClassData, Class<?>> DEFINED_STUB_CACHE = new ConcurrentHashMap<>();
         private static final Map<String, Map.Entry<String, byte[]>> EMPTY_CLASS_BYTES_CACHE = new ConcurrentHashMap<>();
-        private final MethodHandle DEFINE_CLASS_HANDLE;
 
-        public StubGenerator() {
-            MethodHandle defineClassMH = null;
-
-            try {
-                Method method = ClassLoader.class.getDeclaredMethod("defineClass", String.class, byte[].class, int.class, int.class);
-                method.setAccessible(true);
-
-                defineClassMH = SafeClassDefiner.this.lookup.unreflect(method);
-            } catch (Throwable t) {
-                t.printStackTrace();
-            }
-
-            DEFINE_CLASS_HANDLE = defineClassMH;
-        }
-
-        public MethodHandles.Lookup generateStub(ClassLoader classLoader, String packageName) {
+        public Class<?> generateStub(ClassLoader classLoader, String packageName) {
             StubClassData classData = new StubClassData(packageName, classLoader);
-            MethodHandles.Lookup cachedLookup = DEFINED_STUB_CACHE.get(classData);
+            Class<?> cachedLookup = DEFINED_STUB_CACHE.get(classData);
 
             if (cachedLookup != null)
                 return cachedLookup;
@@ -152,7 +154,8 @@ class SafeClassDefiner implements ClassDefiner {
             byte[] bytes = entry.getValue();
 
             try {
-                MethodHandles.Lookup lookup = SafeClassDefiner.this.lookup.in((Class<?>) DEFINE_CLASS_HANDLE.invoke(classLoader, entry.getKey(), bytes, 0, bytes.length));
+                Class<?> lookup = CLASS_LOADER_ACCESS
+                                .defineClass1(classLoader, entry.getKey(), bytes, 0, bytes.length, getCallerClass().getProtectionDomain(), "__SafeClassDefiner__");
                 DEFINED_STUB_CACHE.put(classData, lookup);
                 return lookup;
             } catch (Throwable e) {
@@ -175,6 +178,120 @@ class SafeClassDefiner implements ClassDefiner {
             EMPTY_CLASS_BYTES_CACHE.put(packageName, entry);
 
             return entry;
+        }
+
+        private static ClassLoaderAccess getClassLoaderAccess() {
+            ClassWriter writer = new ClassWriter(0);
+
+            writer.visit(
+                    Opcodes.V1_8,
+                    Opcodes.ACC_PUBLIC,
+                    "java/lang/ClassLoaderAccessImpl",
+                    null,
+                    "java/lang/Object",
+                    new String[] { "ru/kdev/safeclassdefiner/ClassLoaderAccess" }
+            );
+
+            generateEmptyConstructor(writer);
+
+            MethodVisitor defineClass1 = writer.visitMethod(
+                    Opcodes.ACC_PUBLIC,
+                    "defineClass1",
+                    "(Ljava/lang/ClassLoader;Ljava/lang/String;[BIILjava/security/ProtectionDomain;Ljava/lang/String;)Ljava/lang/Class;",
+                    null,
+                    null
+            );
+
+            defineClass1.visitCode();
+
+            defineClass1.visitVarInsn(Opcodes.ALOAD, 1);
+            defineClass1.visitVarInsn(Opcodes.ALOAD, 2);
+            defineClass1.visitVarInsn(Opcodes.ALOAD, 3);
+            defineClass1.visitVarInsn(Opcodes.ALOAD, 4);
+            defineClass1.visitVarInsn(Opcodes.ALOAD, 5);
+            defineClass1.visitVarInsn(Opcodes.ALOAD, 6);
+            defineClass1.visitVarInsn(Opcodes.ALOAD, 7);
+            defineClass1.visitMethodInsn(
+                    Opcodes.INVOKESTATIC,
+                    "java/lang/ClassLoader",
+                    "defineClass1",
+                    "(Ljava/lang/ClassLoader;Ljava/lang/String;[BIILjava/security/ProtectionDomain;Ljava/lang/String;)Ljava/lang/Class;",
+                    false
+            );
+            defineClass1.visitInsn(Opcodes.ARETURN);
+
+            defineClass1.visitMaxs(7, 8);
+            defineClass1.visitEnd();
+
+            MethodVisitor defineClass0 = writer.visitMethod(
+                    Opcodes.ACC_PUBLIC,
+                    "defineClass0",
+                    "(Ljava/lang/ClassLoader;Ljava/lang/Class;Ljava/lang/String;[BIILjava/security/ProtectionDomain;ZILjava/lang/Object;)Ljava/lang/Class;",
+                    null,
+                    null
+            );
+
+            defineClass0.visitCode();
+
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 1);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 2);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 3);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 4);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 5);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 6);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 7);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 8);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 9);
+            defineClass0.visitVarInsn(Opcodes.ALOAD, 10);
+            defineClass0.visitMethodInsn(
+                    Opcodes.INVOKESTATIC,
+                    "java/lang/ClassLoader",
+                    "defineClass0",
+                    "(Ljava/lang/ClassLoader;Ljava/lang/Class;Ljava/lang/String;[BIILjava/security/ProtectionDomain;ZILjava/lang/Object;)Ljava/lang/Class;",
+                    false
+            );
+            defineClass0.visitInsn(Opcodes.ARETURN);
+
+            defineClass0.visitMaxs(10, 11);
+            defineClass0.visitEnd();
+
+            try {
+                Method defineClass1Method = ClassLoader.class.getDeclaredMethod("defineClass1", ClassLoader.class, String.class, byte[].class, int.class, int.class, ProtectionDomain.class, String.class);
+                defineClass1Method.setAccessible(true);
+
+                MethodHandle handle = SAFE_CLASS_DEFINER_LOOKUP.unreflect(defineClass1Method);
+
+                byte[] bytes = writer.toByteArray();
+
+                byte[] classLoaderAccessBytes = new byte[] { -54, -2, -70, -66, 0, 0, 0, 61, 0, 14, 1, 0, 42, 114, 117, 47, 107, 100, 101, 118, 47, 115, 97, 102, 101, 99, 108, 97, 115, 115, 100, 101, 102, 105, 110, 101, 114, 47, 67, 108, 97, 115, 115, 76, 111, 97, 100, 101, 114, 65, 99, 99, 101, 115, 115, 7, 0, 1, 1, 0, 16, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 79, 98, 106, 101, 99, 116, 7, 0, 3, 1, 0, 22, 67, 108, 97, 115, 115, 76, 111, 97, 100, 101, 114, 65, 99, 99, 101, 115, 115, 46, 106, 97, 118, 97, 1, 0, 12, 100, 101, 102, 105, 110, 101, 67, 108, 97, 115, 115, 49, 1, 0, 114, 40, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 76, 111, 97, 100, 101, 114, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110, 103, 59, 91, 66, 73, 73, 76, 106, 97, 118, 97, 47, 115, 101, 99, 117, 114, 105, 116, 121, 47, 80, 114, 111, 116, 101, 99, 116, 105, 111, 110, 68, 111, 109, 97, 105, 110, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110, 103, 59, 41, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 59, 1, 0, 117, 40, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 76, 111, 97, 100, 101, 114, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110, 103, 59, 91, 66, 73, 73, 76, 106, 97, 118, 97, 47, 115, 101, 99, 117, 114, 105, 116, 121, 47, 80, 114, 111, 116, 101, 99, 116, 105, 111, 110, 68, 111, 109, 97, 105, 110, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110, 103, 59, 41, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 60, 42, 62, 59, 1, 0, 12, 100, 101, 102, 105, 110, 101, 67, 108, 97, 115, 115, 48, 1, 0, -123, 40, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 76, 111, 97, 100, 101, 114, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110, 103, 59, 91, 66, 73, 73, 76, 106, 97, 118, 97, 47, 115, 101, 99, 117, 114, 105, 116, 121, 47, 80, 114, 111, 116, 101, 99, 116, 105, 111, 110, 68, 111, 109, 97, 105, 110, 59, 90, 73, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 79, 98, 106, 101, 99, 116, 59, 41, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 59, 1, 0, -117, 40, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 76, 111, 97, 100, 101, 114, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 60, 42, 62, 59, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 83, 116, 114, 105, 110, 103, 59, 91, 66, 73, 73, 76, 106, 97, 118, 97, 47, 115, 101, 99, 117, 114, 105, 116, 121, 47, 80, 114, 111, 116, 101, 99, 116, 105, 111, 110, 68, 111, 109, 97, 105, 110, 59, 90, 73, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 79, 98, 106, 101, 99, 116, 59, 41, 76, 106, 97, 118, 97, 47, 108, 97, 110, 103, 47, 67, 108, 97, 115, 115, 60, 42, 62, 59, 1, 0, 9, 83, 105, 103, 110, 97, 116, 117, 114, 101, 1, 0, 10, 83, 111, 117, 114, 99, 101, 70, 105, 108, 101, 6, 1, 0, 2, 0, 4, 0, 0, 0, 0, 0, 2, 4, 1, 0, 6, 0, 7, 0, 1, 0, 12, 0, 0, 0, 2, 0, 8, 4, 1, 0, 9, 0, 10, 0, 1, 0, 12, 0, 0, 0, 2, 0, 11, 0, 1, 0, 13, 0, 0, 0, 2, 0, 5 };
+
+                Set<Module> classLoaderAccessModule = Collections.singleton(((Class<?>) handle.invoke(
+                        null,
+                        "ru.kdev.safeclassdefiner.ClassLoaderAccess",
+                        classLoaderAccessBytes,
+                        0,
+                        classLoaderAccessBytes.length,
+                        SafeClassDefiner.class.getProtectionDomain(),
+                        "__SafeClassDefiner__"
+                )).getModule());
+
+                SafeDeencapsulator.instrumentation.redefineModule(
+                        Object.class.getModule(),
+                        classLoaderAccessModule,
+                        Collections.emptyMap(),
+                        Collections.emptyMap(),
+                        Collections.emptySet(),
+                        Collections.emptyMap()
+                );
+
+                return (ClassLoaderAccess) ((Class<?>) handle
+                        .invoke(null, "java.lang.ClassLoaderAccessImpl", bytes, 0, bytes.length, ClassLoader.class.getProtectionDomain(), "__SafeClassDefiner__"))
+                        .getDeclaredConstructors()[0]
+                        .newInstance();
+            } catch (Throwable e) {
+                e.printStackTrace();
+                return null;
+            }
         }
 
         public static byte[] emptyClassBytes(String packageName, String className) {

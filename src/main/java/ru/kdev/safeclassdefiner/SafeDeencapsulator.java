@@ -14,6 +14,8 @@ import java.util.Set;
 
 class SafeDeencapsulator {
 
+    static Instrumentation instrumentation;
+
     public static void main(String[] args) throws IOException, AttachNotSupportedException, AgentLoadException, AgentInitializationException {
         VirtualMachine virtualMachine = VirtualMachine.attach(args[0]);
         virtualMachine.loadAgent(Paths.get("temp.jar").toAbsolutePath().toString());
@@ -21,23 +23,24 @@ class SafeDeencapsulator {
     }
 
     public static void agentmain(String args, Instrumentation instrumentation) {
+        SafeDeencapsulator.instrumentation = instrumentation;
+
         Module javaBase = Object.class.getModule();
         Module moduleOfSafeClassDefiner = SafeClassDefiner.class.getModule();
         Set<Module> singletonSet = Set.of(moduleOfSafeClassDefiner);
+        Map<String, Set<Module>> extras = Map.of(
+                "jdk.internal.misc", singletonSet,
+                "jdk.internal.loader", singletonSet,
+                "jdk.internal.access", singletonSet,
+                "java.lang.invoke", singletonSet,
+                "java.lang", singletonSet
+        );
 
         instrumentation.redefineModule(
                 javaBase,
                 Collections.emptySet(),
-                Map.of(
-                        "jdk.internal.misc", singletonSet,
-                        "jdk.internal.loader", singletonSet
-                ),
-                Map.of(
-                        "jdk.internal.misc", singletonSet,
-                        "jdk.internal.loader", singletonSet,
-                        "java.lang.invoke", singletonSet,
-                        "java.lang", singletonSet
-                ),
+                extras,
+                extras,
                 Collections.emptySet(),
                 Collections.emptyMap()
         );

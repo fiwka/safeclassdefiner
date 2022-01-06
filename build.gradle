@@ -27,11 +27,13 @@ compileJmhJava {
 compileJava {
     options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=safeclassdefiner.main'
     options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=safeclassdefiner.main'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.access=safeclassdefiner.main'
 }
 
 compileTestJava {
     options.compilerArgs << '--add-exports=java.base/jdk.internal.loader=safeclassdefiner.main'
     options.compilerArgs << '--add-exports=java.base/jdk.internal.misc=safeclassdefiner.main'
+    options.compilerArgs << '--add-exports=java.base/jdk.internal.access=safeclassdefiner.main'
 }
 
 compileJava.options.encoding = 'UTF-8'
